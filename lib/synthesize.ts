@@ -1,4 +1,4 @@
-import { getClaude, CLAUDE_MODEL, textFromMessage } from "./claude";
+import { getGemini, GEMINI_MODEL } from "./gemini";
 import type { RetrievedChunk } from "./rag";
 
 export interface Bullet {
@@ -56,22 +56,20 @@ export async function synthesizeSlides(
   topic: string,
   chunks: RetrievedChunk[]
 ): Promise<SynthesisResult> {
-  const claude = getClaude();
+  const ai = getGemini();
   const sourceBlock = buildSourceBlock(chunks);
 
-  const message = await claude.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Topic: "${topic}"\n\nSources:\n\n${sourceBlock}`,
-      },
-    ],
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents: `Topic: "${topic}"\n\nSources:\n\n${sourceBlock}`,
+    config: {
+      systemInstruction: SYSTEM_PROMPT,
+      maxOutputTokens: 4096,
+      responseMimeType: "application/json",
+    },
   });
 
-  const raw = textFromMessage(message);
+  const raw = response.text ?? "";
   let parsed: { deckTitle: string; slides: Slide[] };
   try {
     parsed = JSON.parse(raw);

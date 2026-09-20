@@ -1,7 +1,7 @@
 import { getPool } from "@/db/client";
 import { toSql } from "pgvector/pg";
 import { embedText } from "./embeddings";
-import { getClaude, CLAUDE_MODEL, textFromMessage } from "./claude";
+import { getGemini, GEMINI_MODEL } from "./gemini";
 
 export interface RetrievedChunk {
   chunkId: number;
@@ -24,24 +24,19 @@ const FINAL_TOP_N = 20;
  * results, applications, limitations, etc).
  */
 async function generateQueryVariants(topic: string): Promise<string[]> {
-  const claude = getClaude();
-  const message = await claude.messages.create({
-    model: CLAUDE_MODEL,
-    max_tokens: 300,
-    messages: [
-      {
-        role: "user",
-        content:
-          `Generate ${QUERY_VARIANTS - 1} alternate search-query phrasings of the research topic ` +
-          `below, each surfacing a different angle (e.g. methodology, results/findings, applications, ` +
-          `limitations/critiques). Return ONLY a JSON array of strings, no other text.\n\n` +
-          `Topic: "${topic}"`,
-      },
-    ],
+  const ai = getGemini();
+  const response = await ai.models.generateContent({
+    model: GEMINI_MODEL,
+    contents:
+      `Generate ${QUERY_VARIANTS - 1} alternate search-query phrasings of the research topic ` +
+      `below, each surfacing a different angle (e.g. methodology, results/findings, applications, ` +
+      `limitations/critiques). Return ONLY a JSON array of strings, no other text.\n\n` +
+      `Topic: "${topic}"`,
+    config: { maxOutputTokens: 300, responseMimeType: "application/json" },
   });
 
   try {
-    const variants = JSON.parse(textFromMessage(message)) as string[];
+    const variants = JSON.parse(response.text ?? "[]") as string[];
     return [topic, ...variants.filter((v) => typeof v === "string" && v.trim().length > 0)];
   } catch {
     return [topic];

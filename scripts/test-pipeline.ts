@@ -21,7 +21,7 @@ async function main() {
   const chunks = await retrieveTopChunks(TOPIC);
   console.log(`✅ Retrieved ${chunks.length} re-ranked chunks from ${new Set(chunks.map((c) => c.paperId)).size} distinct papers`);
 
-  console.log("▶ Synthesizing slide outline via Claude");
+  console.log("▶ Synthesizing slide outline via Gemini");
   const synthesis = await synthesizeSlides(TOPIC, chunks);
   const totalBullets = synthesis.slides.reduce((n, s) => n + s.bullets.length, 0);
   console.log(

@@ -19,6 +19,15 @@ So the system is split into two independently-deployable pieces:
    a Docker container, etc.) for production. It is intentionally *not* a
    Vercel serverless/edge function.
 
+   This project's deployment avoids paying for an always-on host by
+   running the worker as a **GitHub Actions job** instead: `worker/run-once.ts`
+   (`npm run worker:once`) behaves like `worker/index.ts` but exits once the
+   BullMQ queue has been idle for a few seconds, or if no job shows up within
+   a startup grace window. `.github/workflows/worker.yml` runs it on
+   `workflow_dispatch`, which `lib/triggerWorker.ts` fires right after
+   `POST /api/generate` enqueues a job — so a GitHub Actions runner spins up,
+   drains the queue, and shuts down, rather than a container idling 24/7.
+
 Both processes talk to the same Postgres (pgvector) and Redis instances and
 share code in `lib/`.
 
@@ -32,13 +41,18 @@ equivalent**, so that one step (`scripts/build_deck.py`) is the only place
 Python appears. The worker calls it as a subprocess, handing it a JSON file
 (the synthesis output) and getting back a `.pptx` file path.
 
-## Why OpenAI for embeddings
+## Why Google Gemini for everything
 
-Claude does not expose a first-party embeddings API. `text-embedding-3-small`
-(1536 dimensions) was chosen as a small, cheap, widely-documented option that
-pairs cleanly with `pgvector`. Swapping to a different embedding provider
-only requires changing `lib/embeddings.ts` and the `vector(1536)` column
-dimension in `db/schema.sql` to match the new model's output size.
+Both text generation (query expansion + synthesis, `lib/gemini.ts` +
+`lib/rag.ts` + `lib/synthesize.ts`) and embeddings (`lib/embeddings.ts`) run
+on Google Gemini — one provider, one free API key
+(https://aistudio.google.com/apikey, no card required), instead of Claude
+for generation and OpenAI for embeddings. `gemini-embedding-001` supports
+configurable output dimensionality (Matryoshka representation learning), so
+`lib/gemini.ts` pins it to 1536 dimensions to match the `vector(1536)`
+column in `db/schema.sql` without needing a schema change. Swapping to a
+different embedding provider only requires changing `lib/embeddings.ts` and
+that column dimension to match the new model's output size.
 
 ## Multi-query RAG + re-ranking
 
@@ -61,14 +75,16 @@ source of truth.
 
 ## Storage
 
-Generated `.pptx` files are written to a local `GENERATED_DIR` and served by
-`/api/download/[jobId]`, which requires the API and worker to share a
-filesystem (true for local dev and for a single-container deployment). For a
-production split where the API runs on Vercel and the worker runs elsewhere,
-swap `lib/storage.ts`'s `saveDeck` for `@vercel/blob`'s `put()` and store the
-returned URL in the `jobs.file_path` column instead of a local path — left
-as a documented swap-in rather than wired up, since it requires a live
-Vercel Blob token/project that this build doesn't have access to.
+Generated `.pptx` files are uploaded to Vercel Blob (`lib/storage.ts`'s
+`saveDeck`, via `@vercel/blob`'s `put()`), and the returned public URL is
+stored in the `jobs.file_path` column. `/api/download/[jobId]` fetches from
+that URL and streams it back with the right `Content-Type`/
+`Content-Disposition` headers, rather than redirecting, so the browser gets
+a clean download regardless of where the blob lives. This is required
+because the API (Vercel) and the worker (GitHub Actions) run on different
+hosts and don't share a filesystem. If `BLOB_READ_WRITE_TOKEN` isn't set —
+e.g. local dev without a linked Blob store — `saveDeck` falls back to
+writing under `GENERATED_DIR` on local disk.
 
 ## Job state
 

@@ -37,12 +37,12 @@ Next.js API (Vercel) and a separate long-running worker.
    ```
    cp .env.example .env
    ```
-   Fill in `ANTHROPIC_API_KEY` (Claude, used for query expansion + synthesis)
-   and `OPENAI_API_KEY` (used only for embeddings — Claude has no first-party
-   embeddings API). `OPENALEX_MAILTO` is optional — OpenAlex needs no API
-   key, but setting a contact email joins its "polite pool" for faster,
-   more consistent rate limits. Defaults for `DATABASE_URL`/`REDIS_URL`
-   match the Docker Compose services above.
+   Fill in `GEMINI_API_KEY` (Google Gemini — used for query expansion,
+   synthesis, AND embeddings; free tier, no card required, from
+   https://aistudio.google.com/apikey). `OPENALEX_MAILTO` is optional —
+   OpenAlex needs no API key, but setting a contact email joins its "polite
+   pool" for faster, more consistent rate limits. Defaults for
+   `DATABASE_URL`/`REDIS_URL` match the Docker Compose services above.
 
 5. **Run the database migration** (creates `papers`, `chunks`, `jobs`, and
    enables the `vector` extension):
@@ -93,13 +93,23 @@ paper.
 
 ## Deploying
 
-- **Vercel**: deploy this repo as-is; it only needs `DATABASE_URL`,
-  `REDIS_URL`, and `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` as environment
-  variables. Point `DATABASE_URL`/`REDIS_URL` at managed Postgres+pgvector
-  and Redis instances reachable from Vercel.
-- **Worker**: deploy `worker/index.ts` separately (e.g. `npm run worker` in
-  a container that also has Python + `scripts/requirements.txt` installed),
-  pointed at the same `DATABASE_URL`/`REDIS_URL`. See ARCHITECTURE.md for
-  why this can't live on Vercel itself, and for the `lib/storage.ts` swap
-  needed to move generated files to Vercel Blob/S3 for a fully split
-  deployment where the API and worker don't share a filesystem.
+This is deployed as three independent pieces, none of which need a paid
+plan or a card on file:
+
+- **Vercel** — the Next.js app. Needs `DATABASE_URL`, `REDIS_URL`, and
+  `BLOB_READ_WRITE_TOKEN` (from a linked Vercel Blob store) as project env
+  vars, plus `GH_WORKFLOW_TOKEN`/`GH_WORKFLOW_REPO` so it can trigger the
+  worker (see below). `DATABASE_URL`/`REDIS_URL` point at managed
+  Postgres+pgvector (this project uses Neon) and Redis (Upstash, via
+  Vercel's own storage integration) reachable from Vercel.
+- **GitHub Actions** — the worker. `.github/workflows/worker.yml` runs
+  `npm run worker:once` (see ARCHITECTURE.md for why the worker can't run
+  on Vercel itself), triggered via `workflow_dispatch` right after
+  `POST /api/generate` enqueues a job (`lib/triggerWorker.ts`), and exits
+  once the queue goes idle so each run only bills Actions minutes for
+  actual work. Needs repo secrets: `DATABASE_URL`, `REDIS_URL`,
+  `GEMINI_API_KEY`, `OPENALEX_MAILTO`, `BLOB_READ_WRITE_TOKEN`.
+- **Vercel Blob** — generated `.pptx` files. `lib/storage.ts` uploads there
+  (falling back to local disk if `BLOB_READ_WRITE_TOKEN` isn't set, e.g. in
+  local dev), since the Vercel API and the GitHub Actions worker don't
+  share a filesystem.
