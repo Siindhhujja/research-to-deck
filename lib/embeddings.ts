@@ -1,4 +1,4 @@
-import { getGemini, GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSIONS } from "./gemini";
+import { getGemini, GEMINI_EMBEDDING_MODEL, EMBEDDING_DIMENSIONS, withGeminiRetry } from "./gemini";
 
 const BATCH_SIZE = 32;
 
@@ -10,11 +10,13 @@ export async function embedTexts(texts: string[]): Promise<number[][]> {
 
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     const batch = texts.slice(i, i + BATCH_SIZE);
-    const res = await ai.models.embedContent({
-      model: GEMINI_EMBEDDING_MODEL,
-      contents: batch,
-      config: { outputDimensionality: EMBEDDING_DIMENSIONS },
-    });
+    const res = await withGeminiRetry(() =>
+      ai.models.embedContent({
+        model: GEMINI_EMBEDDING_MODEL,
+        contents: batch,
+        config: { outputDimensionality: EMBEDDING_DIMENSIONS },
+      })
+    );
     if (!res.embeddings) {
       throw new Error("Gemini embedContent returned no embeddings");
     }

@@ -26,6 +26,11 @@ async function extractPaperText(paper: OpenAlexPaper): Promise<string> {
   return paper.abstract ?? "";
 }
 
+interface ChunkedPaper {
+  paper: OpenAlexPaper;
+  chunks: string[];
+}
+
 /**
  * Fetches papers for `topic` from OpenAlex, extracts text
  * (full PDF where available, abstract otherwise), chunks, embeds, and
@@ -35,12 +40,28 @@ export async function ingestTopic(topic: string, targetPaperCount = 50): Promise
   const papers = await searchPapers(topic, targetPaperCount);
   const pool = getPool();
 
-  let chunkCount = 0;
-  let ingestedPapers = 0;
-
+  // Extract + chunk text for every paper before embedding anything. This
+  // lets every chunk from every paper go through embedTexts' batching in
+  // one pass, instead of one embedding API call per paper — the free-tier
+  // Gemini quota is per-minute and easy to trip with 50 back-to-back calls.
+  const chunkedPapers: ChunkedPaper[] = [];
   for (const paper of papers) {
     const text = await extractPaperText(paper);
     if (!text || text.trim().length < 50) continue; // skip papers with no usable text
+    const chunks = chunkText(text);
+    if (chunks.length > 0) chunkedPapers.push({ paper, chunks });
+  }
+
+  const allChunks = chunkedPapers.flatMap((p) => p.chunks);
+  const allEmbeddings = await embedTexts(allChunks);
+
+  let chunkCount = 0;
+  let ingestedPapers = 0;
+  let cursor = 0;
+
+  for (const { paper, chunks } of chunkedPapers) {
+    const embeddings = allEmbeddings.slice(cursor, cursor + chunks.length);
+    cursor += chunks.length;
 
     const client = await pool.connect();
     try {
@@ -61,18 +82,14 @@ export async function ingestTopic(topic: string, targetPaperCount = 50): Promise
         ]
       );
 
-      const chunks = chunkText(text);
-      if (chunks.length > 0) {
-        const embeddings = await embedTexts(chunks);
-        for (let i = 0; i < chunks.length; i++) {
-          await client.query(
-            `INSERT INTO chunks (paper_id, chunk_index, content, embedding)
-             VALUES ($1, $2, $3, $4)`,
-            [paper.paperId, i, chunks[i], toSql(embeddings[i])]
-          );
-        }
-        chunkCount += chunks.length;
+      for (let i = 0; i < chunks.length; i++) {
+        await client.query(
+          `INSERT INTO chunks (paper_id, chunk_index, content, embedding)
+           VALUES ($1, $2, $3, $4)`,
+          [paper.paperId, i, chunks[i], toSql(embeddings[i])]
+        );
       }
+      chunkCount += chunks.length;
 
       await client.query("COMMIT");
       ingestedPapers++;

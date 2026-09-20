@@ -1,7 +1,7 @@
 import { getPool } from "@/db/client";
 import { toSql } from "pgvector/pg";
 import { embedText } from "./embeddings";
-import { getGemini, GEMINI_MODEL } from "./gemini";
+import { getGemini, GEMINI_MODEL, withGeminiRetry } from "./gemini";
 
 export interface RetrievedChunk {
   chunkId: number;
@@ -25,15 +25,17 @@ const FINAL_TOP_N = 20;
  */
 async function generateQueryVariants(topic: string): Promise<string[]> {
   const ai = getGemini();
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents:
-      `Generate ${QUERY_VARIANTS - 1} alternate search-query phrasings of the research topic ` +
-      `below, each surfacing a different angle (e.g. methodology, results/findings, applications, ` +
-      `limitations/critiques). Return ONLY a JSON array of strings, no other text.\n\n` +
-      `Topic: "${topic}"`,
-    config: { maxOutputTokens: 300, responseMimeType: "application/json" },
-  });
+  const response = await withGeminiRetry(() =>
+    ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents:
+        `Generate ${QUERY_VARIANTS - 1} alternate search-query phrasings of the research topic ` +
+        `below, each surfacing a different angle (e.g. methodology, results/findings, applications, ` +
+        `limitations/critiques). Return ONLY a JSON array of strings, no other text.\n\n` +
+        `Topic: "${topic}"`,
+      config: { maxOutputTokens: 300, responseMimeType: "application/json" },
+    })
+  );
 
   try {
     const variants = JSON.parse(response.text ?? "[]") as string[];
@@ -80,9 +82,13 @@ async function retrieveForQuery(
  */
 export async function retrieveTopChunks(topic: string): Promise<RetrievedChunk[]> {
   const queries = await generateQueryVariants(topic);
-  const rankLists = await Promise.all(
-    queries.map((q) => retrieveForQuery(q, topic, TOP_K_PER_QUERY))
-  );
+  // Sequential rather than Promise.all: each call embeds a query via
+  // Gemini's free tier, and a burst of concurrent calls trips its
+  // per-minute quota far more easily than the same calls spread out.
+  const rankLists: RetrievedChunk[][] = [];
+  for (const q of queries) {
+    rankLists.push(await retrieveForQuery(q, topic, TOP_K_PER_QUERY));
+  }
 
   const RRF_K = 60; // standard RRF smoothing constant
   const fused = new Map<number, { chunk: RetrievedChunk; score: number }>();

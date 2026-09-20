@@ -1,4 +1,4 @@
-import { getGemini, GEMINI_MODEL } from "./gemini";
+import { getGemini, GEMINI_MODEL, withGeminiRetry } from "./gemini";
 import type { RetrievedChunk } from "./rag";
 
 export interface Bullet {
@@ -59,15 +59,17 @@ export async function synthesizeSlides(
   const ai = getGemini();
   const sourceBlock = buildSourceBlock(chunks);
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: `Topic: "${topic}"\n\nSources:\n\n${sourceBlock}`,
-    config: {
-      systemInstruction: SYSTEM_PROMPT,
-      maxOutputTokens: 4096,
-      responseMimeType: "application/json",
-    },
-  });
+  const response = await withGeminiRetry(() =>
+    ai.models.generateContent({
+      model: GEMINI_MODEL,
+      contents: `Topic: "${topic}"\n\nSources:\n\n${sourceBlock}`,
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+      },
+    })
+  );
 
   const raw = response.text ?? "";
   let parsed: { deckTitle: string; slides: Slide[] };
