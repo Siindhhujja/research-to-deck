@@ -65,8 +65,12 @@ export async function synthesizeSlides(
       contents: `Topic: "${topic}"\n\nSources:\n\n${sourceBlock}`,
       config: {
         systemInstruction: SYSTEM_PROMPT,
-        maxOutputTokens: 4096,
+        maxOutputTokens: 8192,
         responseMimeType: "application/json",
+        // This is deterministic structuring of already-retrieved sources,
+        // not open-ended reasoning — thinking tokens were eating into the
+        // output budget and truncating the JSON before it finished.
+        thinkingConfig: { thinkingBudget: 0 },
       },
     })
   );

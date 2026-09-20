@@ -33,7 +33,11 @@ async function generateQueryVariants(topic: string): Promise<string[]> {
         `below, each surfacing a different angle (e.g. methodology, results/findings, applications, ` +
         `limitations/critiques). Return ONLY a JSON array of strings, no other text.\n\n` +
         `Topic: "${topic}"`,
-      config: { maxOutputTokens: 300, responseMimeType: "application/json" },
+      config: {
+        maxOutputTokens: 500,
+        responseMimeType: "application/json",
+        thinkingConfig: { thinkingBudget: 0 },
+      },
     })
   );
 
