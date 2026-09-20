@@ -31,14 +31,44 @@ interface ChunkedPaper {
   chunks: string[];
 }
 
+// Gemini's free embedding tier caps out at 1000 requests/day, and a run
+// that fully chunks 50 real papers can easily need more than that. Capping
+// chunks per paper bounds worst-case embedding volume to
+// targetPaperCount * MAX_CHUNKS_PER_PAPER, leaving headroom for retries and
+// the multi-query retrieval embeddings in lib/rag.ts.
+const MAX_CHUNKS_PER_PAPER = 12;
+
 /**
  * Fetches papers for `topic` from OpenAlex, extracts text
  * (full PDF where available, abstract otherwise), chunks, embeds, and
  * upserts everything into Postgres/pgvector.
+ *
+ * If this exact topic string was already ingested (e.g. a repeat request),
+ * skips straight to returning the existing counts instead of re-fetching
+ * and re-embedding everything — both to avoid burning the daily embedding
+ * quota twice for the same content, and because `chunks` has no unique
+ * constraint on (paper_id, chunk_index), so re-ingesting would duplicate
+ * rows rather than update them.
  */
 export async function ingestTopic(topic: string, targetPaperCount = 50): Promise<IngestResult> {
-  const papers = await searchPapers(topic, targetPaperCount);
   const pool = getPool();
+
+  const existing = await pool.query<{ paper_count: string; chunk_count: string }>(
+    `SELECT COUNT(DISTINCT p.id)::text AS paper_count, COUNT(c.id)::text AS chunk_count
+     FROM papers p LEFT JOIN chunks c ON c.paper_id = p.id
+     WHERE p.topic = $1`,
+    [topic]
+  );
+  const existingPaperCount = Number(existing.rows[0].paper_count);
+  if (existingPaperCount >= 5) {
+    return {
+      topic,
+      paperCount: existingPaperCount,
+      chunkCount: Number(existing.rows[0].chunk_count),
+    };
+  }
+
+  const papers = await searchPapers(topic, targetPaperCount);
 
   // Extract + chunk text for every paper before embedding anything. This
   // lets every chunk from every paper go through embedTexts' batching in
@@ -48,7 +78,7 @@ export async function ingestTopic(topic: string, targetPaperCount = 50): Promise
   for (const paper of papers) {
     const text = await extractPaperText(paper);
     if (!text || text.trim().length < 50) continue; // skip papers with no usable text
-    const chunks = chunkText(text);
+    const chunks = chunkText(text).slice(0, MAX_CHUNKS_PER_PAPER);
     if (chunks.length > 0) chunkedPapers.push({ paper, chunks });
   }
 
