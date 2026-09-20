@@ -17,3 +17,5 @@ npm-debug.log*
 .env*
 .agents/
 skills-lock.json
+
+.env*

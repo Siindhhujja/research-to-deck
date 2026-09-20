@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { getDeckQueue } from "@/lib/queue";
 import { createJobRecord } from "@/lib/jobs";
+import { triggerWorkerWorkflow } from "@/lib/triggerWorker";
 
 const RequestSchema = z.object({
   topic: z.string().trim().min(3).max(300),
@@ -23,6 +24,7 @@ export async function POST(req: NextRequest) {
   const queue = getDeckQueue();
   const job = await queue.add("generate-deck", { topic });
   await createJobRecord(job.id!, topic);
+  await triggerWorkerWorkflow();
 
   return NextResponse.json({ jobId: job.id }, { status: 202 });
 }

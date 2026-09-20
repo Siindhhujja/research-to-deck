@@ -8,11 +8,13 @@
     "start": "next start",
     "lint": "next lint",
     "worker": "tsx worker/index.ts",
+    "worker:once": "tsx worker/run-once.ts",
     "db:migrate": "tsx db/migrate.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@vercel/blob": "^2.8.0",
     "bullmq": "^5.34.1",
     "ioredis": "^5.4.2",
     "next": "^15.0.3",
