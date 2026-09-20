@@ -1,0 +1,14 @@
+node_modules/
+.next/
+out/
+generated/
+*.pptx
+.env
+.env.local
+__pycache__/
+*.pyc
+.venv/
+npm-debug.log*
+.DS_Store
+*.tsbuildinfo
+.claude/
