@@ -12,3 +12,8 @@ npm-debug.log*
 .DS_Store
 *.tsbuildinfo
 .claude/
+
+.vercel
+.env*
+.agents/
+skills-lock.json
