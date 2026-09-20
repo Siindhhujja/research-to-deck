@@ -11,7 +11,11 @@ export function getGemini(): GoogleGenAI {
   return client;
 }
 
-export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+// "-latest" alias rather than a pinned version: Google periodically retires
+// specific model versions for new API keys/projects (e.g. gemini-2.5-flash
+// returned 404 "no longer available to new users" for a freshly-created
+// key), and the alias always resolves to their current recommended model.
+export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-flash-latest";
 export const GEMINI_EMBEDDING_MODEL = process.env.GEMINI_EMBEDDING_MODEL || "gemini-embedding-001";
 
 // gemini-embedding-001 supports configurable output dimensionality (768/1536/3072)
