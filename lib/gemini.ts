@@ -26,13 +26,14 @@ export const EMBEDDING_DIMENSIONS = 1536;
 const RETRY_DELAYS_MS = [2000, 5000, 10000, 20000, 30000];
 
 /**
- * Retries a Gemini call with backoff on 429 (RESOURCE_EXHAUSTED) responses.
- * The free tier's per-minute quota is easy to trip with back-to-back calls
- * and recovers within seconds, so a short backoff loop turns transient
- * rate-limit errors into a brief pause instead of failing the whole job.
+ * Retries a Gemini call with backoff on:
+ * - 429 (RESOURCE_EXHAUSTED) — the free tier's per-minute quota is easy to
+ *   trip with back-to-back calls and recovers within seconds.
+ * - 503 (UNAVAILABLE) — Google's own "model is experiencing high demand,
+ *   usually temporary" response.
  *
- * A per-*day* quota (quotaId containing "PerDay") won't recover within any
- * reasonable backoff window, so those fail fast with a clear message
+ * A per-*day* 429 quota (quotaId containing "PerDay") won't recover within
+ * any reasonable backoff window, so those fail fast with a clear message
  * instead of burning ~70s of retries per call for no benefit.
  */
 export async function withGeminiRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -40,8 +41,9 @@ export async function withGeminiRetry<T>(fn: () => Promise<T>): Promise<T> {
     try {
       return await fn();
     } catch (err) {
-      if (!(err instanceof ApiError) || err.status !== 429) throw err;
-      if (/PerDay/i.test(err.message)) {
+      const isRetryable = err instanceof ApiError && (err.status === 429 || err.status === 503);
+      if (!isRetryable) throw err;
+      if (err.status === 429 && /PerDay/i.test(err.message)) {
         throw new Error(
           "Gemini free-tier daily quota is exhausted for today (resets ~24h from when it was " +
             `first hit). Original error: ${err.message}`
@@ -49,7 +51,9 @@ export async function withGeminiRetry<T>(fn: () => Promise<T>): Promise<T> {
       }
       if (attempt >= RETRY_DELAYS_MS.length) throw err;
       const delay = RETRY_DELAYS_MS[attempt];
-      console.warn(`Gemini rate limit hit — retrying in ${delay}ms (attempt ${attempt + 1})`);
+      console.warn(
+        `Gemini ${err.status} — retrying in ${delay}ms (attempt ${attempt + 1}): ${err.message}`
+      );
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
