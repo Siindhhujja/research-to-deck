@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Research-to-Deck Generator",
+    "quality_profile": "showcase",
+    "views": [
+      { "id": "request-path", "label": "Submit & download", "focus": ["users", "nextjs", "blob"], "note": "The user's whole visible interaction: submit a topic, poll status, download the deck." },
+      { "id": "worker-pipeline", "label": "Worker pipeline", "focus": ["github-actions", "openalex", "gemini", "neon"], "note": "What runs on workflow_dispatch: ingest, embed, retrieve, and synthesize." },
+      { "id": "shared-state", "label": "Shared state", "focus": ["nextjs", "github-actions", "neon", "upstash"], "note": "Postgres and Redis are the only things both the API and the worker touch directly." }
+    ]
+  },
+  "components": [
+    { "id": "users", "type": "external", "label": "User", "sublabel": "Browser", "pos": [40, 320], "size": [130, 64] },
+    { "id": "nextjs", "type": "backend", "label": "Next.js App", "sublabel": "Vercel · UI + API routes", "pos": [280, 320], "size": [160, 64] },
+    { "id": "blob", "type": "cloud", "label": "Vercel Blob", "sublabel": "Generated .pptx files", "pos": [280, 520], "size": [160, 64] },
+    { "id": "neon", "type": "database", "label": "Neon Postgres", "sublabel": "pgvector · papers, chunks, jobs", "pos": [540, 140], "size": [170, 64] },
+    { "id": "upstash", "type": "messagebus", "label": "Upstash Redis", "sublabel": "BullMQ job queue", "pos": [540, 520], "size": [170, 64] },
+    { "id": "github-actions", "type": "backend", "label": "GitHub Actions", "sublabel": "Worker · runs on workflow_dispatch", "pos": [800, 320], "size": [180, 64] },
+    { "id": "openalex", "type": "external", "label": "OpenAlex API", "sublabel": "Paper search + PDFs", "pos": [1060, 140], "size": [170, 64] },
+    { "id": "gemini", "type": "external", "label": "Google Gemini", "sublabel": "Embeddings + slide synthesis", "pos": [1060, 520], "size": [180, 64] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Vercel", "wraps": ["nextjs", "blob"] }
+  ],
+  "connections": [
+    { "id": "submit-and-poll", "from": "users", "to": "nextjs", "label": "submit topic / poll status", "variant": "emphasis", "labelDy": 56 },
+    { "id": "enqueue-job", "from": "nextjs", "to": "upstash", "label": "enqueue job" },
+    { "id": "job-state", "from": "nextjs", "to": "neon", "label": "read/write job status", "fromSide": "top", "toSide": "bottom" },
+    { "id": "trigger-worker", "from": "nextjs", "to": "github-actions", "label": "trigger workflow_dispatch", "variant": "dashed", "fromSide": "right", "toSide": "left", "labelDy": 48, "labelDx": 120 },
+    { "id": "consume-queue", "from": "upstash", "to": "github-actions", "label": "consume queue" },
+    { "id": "store-papers", "from": "github-actions", "to": "neon", "label": "store papers & chunks" },
+    { "id": "fetch-papers", "from": "github-actions", "to": "openalex", "label": "fetch papers & PDFs" },
+    { "id": "embed-synthesize", "from": "github-actions", "to": "gemini", "label": "embed & synthesize" },
+    { "id": "upload-deck", "from": "github-actions", "to": "blob", "label": "upload .pptx", "variant": "dashed", "fromSide": "bottom", "toSide": "bottom" },
+    { "id": "stream-download", "from": "nextjs", "to": "blob", "label": "stream download", "labelDy": 24 }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Client", "items": ["Single form polls job status every 3s", "Shows a live stage label + elapsed timer"] },
+    { "dot": "emerald", "title": "Vercel (serverless)", "items": ["Next.js API routes only enqueue, report status, and stream downloads", "No card required — fully free-tier stack"] },
+    { "dot": "violet", "title": "Worker (GitHub Actions)", "items": ["Triggered on demand, exits once the queue is idle", "RAG: OpenAlex → Gemini embeddings → pgvector → Gemini synthesis → python-pptx"] }
+  ]
+}
