@@ -11,19 +11,27 @@ export interface IngestResult {
   chunkCount: number;
 }
 
+// Postgres text columns reject NUL bytes ("invalid byte sequence for
+// encoding UTF8: 0x00"), and pdf-parse emits them for PDFs with broken
+// font/ligature mappings. Strip them from anything headed for the DB.
+function stripNul<T extends string | null | undefined>(s: T): T {
+  return (typeof s === "string" ? s.replace(/\u0000/g, "") : s) as T;
+}
+
 async function extractPaperText(paper: OpenAlexPaper): Promise<string> {
   const pdfBuffer = await fetchPdfBuffer(paper);
   if (pdfBuffer) {
     try {
       const parsed = await pdfParse(pdfBuffer);
-      if (parsed.text && parsed.text.trim().length > 200) {
-        return parsed.text;
+      const text = stripNul(parsed.text);
+      if (text && text.trim().length > 200) {
+        return text;
       }
     } catch {
       // Fall through to abstract on parse failure.
     }
   }
-  return paper.abstract ?? "";
+  return stripNul(paper.abstract ?? "");
 }
 
 interface ChunkedPaper {
@@ -103,12 +111,12 @@ export async function ingestTopic(topic: string, targetPaperCount = 50): Promise
         [
           paper.paperId,
           topic,
-          paper.title,
-          paper.authors.map((a) => a.name),
+          stripNul(paper.title),
+          paper.authors.map((a) => stripNul(a.name)),
           paper.year,
-          paper.venue,
+          stripNul(paper.venue),
           paper.url,
-          paper.abstract,
+          stripNul(paper.abstract),
         ]
       );
 
