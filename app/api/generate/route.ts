@@ -9,6 +9,16 @@ const RequestSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
 });
 
+/** Comma-separated emails exempt from the one-generation gate (e.g. the
+ * project owner's own address, for testing/demoing without burning the
+ * one-time allowance). Configured via env, not hardcoded. */
+const UNLIMITED_EMAILS = new Set(
+  (process.env.UNLIMITED_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean)
+);
+
 /**
  * Enqueues a deck-generation job and returns immediately with a jobId.
  * The actual pipeline (ingestion → RAG → synthesis → PPTX) runs
@@ -27,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   const { topic, email } = parsed.data;
 
-  const priorCount = await countJobsByEmail(email);
+  const priorCount = UNLIMITED_EMAILS.has(email) ? 0 : await countJobsByEmail(email);
   if (priorCount > 0) {
     return NextResponse.json(
       { error: "This email has already used its one free deck generation." },
