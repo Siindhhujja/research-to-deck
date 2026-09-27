@@ -19,6 +19,12 @@ const QUERY_VARIANTS = 4;
 const TOP_K_PER_QUERY = 15;
 const FINAL_TOP_N = 20;
 
+// Voyage's free tier (no payment method on file) caps out at 10K tokens per
+// *minute* — well under what deduping the full multi-query candidate pool
+// (up to 60 chunks) would produce in a single rerank call. Capping here
+// keeps a single call safely under that limit regardless of billing status.
+const MAX_RERANK_CANDIDATES = 24;
+
 /**
  * Asks Gemini for alternate phrasings of `topic` that would surface
  * different, complementary angles in a literature search (methodology,
@@ -132,15 +138,23 @@ export async function retrieveTopChunks(topic: string): Promise<RetrievedChunk[]
     return rrfFuse(rankLists);
   }
 
-  // The same chunk often surfaces for multiple query phrasings — dedupe
-  // by chunkId before sending to the reranker so it isn't scored twice.
-  const candidates = new Map<number, RetrievedChunk>();
-  for (const list of rankLists) {
-    for (const chunk of list) {
-      if (!candidates.has(chunk.chunkId)) candidates.set(chunk.chunkId, chunk);
+  // The same chunk often surfaces for multiple query phrasings — dedupe by
+  // chunkId, interleaving round-robin across query variants (rather than
+  // draining one variant's list before the next) so every angle gets fair
+  // representation once MAX_RERANK_CANDIDATES caps the pool.
+  const seen = new Set<number>();
+  const pool: RetrievedChunk[] = [];
+  const maxListLength = Math.max(0, ...rankLists.map((list) => list.length));
+  outer: for (let i = 0; i < maxListLength; i++) {
+    for (const list of rankLists) {
+      if (pool.length >= MAX_RERANK_CANDIDATES) break outer;
+      const chunk = list[i];
+      if (chunk && !seen.has(chunk.chunkId)) {
+        seen.add(chunk.chunkId);
+        pool.push(chunk);
+      }
     }
   }
-  const pool = Array.from(candidates.values());
 
   const ranked = await rerankTexts(
     topic,
