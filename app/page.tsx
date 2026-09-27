@@ -23,7 +23,7 @@ const STATUS_COLOR: Record<Status, string> = {
   idle: "var(--color-muted-foreground)",
   queued: "var(--color-queued)",
   running: "var(--color-running)",
-  done: "var(--color-accent)",
+  done: "var(--color-done)",
   failed: "var(--color-destructive)",
 };
 
