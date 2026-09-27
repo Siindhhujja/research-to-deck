@@ -39,3 +39,10 @@ CREATE TABLE IF NOT EXISTS jobs (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Added after the jobs table already existed in production, hence ALTER
+-- rather than a column in the CREATE TABLE above (which only applies to
+-- fresh installs). Nullable so pre-existing rows aren't broken by this
+-- migration; new submissions require it at the API layer instead.
+ALTER TABLE jobs ADD COLUMN IF NOT EXISTS email TEXT;
+CREATE INDEX IF NOT EXISTS jobs_email_idx ON jobs (email);

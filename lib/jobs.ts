@@ -11,13 +11,26 @@ export interface JobRecord {
   paperCount: number | null;
 }
 
-export async function createJobRecord(id: string, topic: string): Promise<void> {
+export async function createJobRecord(id: string, topic: string, email: string): Promise<void> {
   const pool = getPool();
   await pool.query(
-    `INSERT INTO jobs (id, topic, status) VALUES ($1, $2, 'queued')
+    `INSERT INTO jobs (id, topic, email, status) VALUES ($1, $2, $3, 'queued')
      ON CONFLICT (id) DO NOTHING`,
-    [id, topic]
+    [id, topic, email]
   );
+}
+
+/**
+ * Counts prior generation attempts for `email`, regardless of outcome —
+ * a failed job still used the one free generation, since the free tier is
+ * meant to gate demand on the shared API quota, not guarantee a success.
+ */
+export async function countJobsByEmail(email: string): Promise<number> {
+  const pool = getPool();
+  const res = await pool.query(`SELECT COUNT(*)::int AS count FROM jobs WHERE email = $1`, [
+    email,
+  ]);
+  return res.rows[0].count;
 }
 
 export async function updateJobStatus(

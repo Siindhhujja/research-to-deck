@@ -78,10 +78,17 @@ function ElapsedTime({ since }: { since: number }) {
 
 export default function Home() {
   const [topic, setTopic] = useState("");
+  const [email, setEmail] = useState("");
   const [job, setJob] = useState<JobState | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem("rtd_email");
+      if (saved) setEmail(saved);
+    } catch {
+      // Ignore — email input just starts blank.
+    }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
@@ -91,19 +98,29 @@ export default function Home() {
     e.preventDefault();
     if (pollRef.current) clearInterval(pollRef.current);
 
+    try {
+      localStorage.setItem("rtd_email", email);
+    } catch {
+      // Non-critical — just skips remembering the email for next time.
+    }
+
     const res = await fetch("/api/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic }),
+      body: JSON.stringify({ topic, email }),
     });
 
     if (!res.ok) {
-      const body = await res.text();
+      const body = await res.json().catch(() => null);
+      const message =
+        typeof body?.error === "string"
+          ? body.error
+          : "Something went wrong submitting your request.";
       setJob({
         jobId: "",
         status: "failed",
         paperCount: null,
-        error: body,
+        error: message,
         startedAt: Date.now(),
       });
       return;
@@ -159,23 +176,35 @@ export default function Home() {
         ))}
       </div>
 
-      <form onSubmit={submit} className="generate-form">
+      <form onSubmit={submit} className="generate-form-stacked">
         <input
-          value={topic}
-          onChange={(e) => setTopic(e.target.value)}
-          placeholder="e.g. retrieval-augmented generation evaluation"
-          aria-label="Research topic"
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          aria-label="Email"
           required
           disabled={isBusy}
           className="input"
         />
-        <button type="submit" disabled={isBusy} className="btn-primary">
-          Generate deck
-        </button>
+        <div className="generate-form">
+          <input
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="e.g. retrieval-augmented generation evaluation"
+            aria-label="Research topic"
+            required
+            disabled={isBusy}
+            className="input"
+          />
+          <button type="submit" disabled={isBusy} className="btn-primary">
+            Generate deck
+          </button>
+        </div>
       </form>
       <p className="hint-text">
-        Usually takes 1–3 minutes: it searches live academic sources, retrieves and re-ranks the
-        most relevant passages, then writes and builds the deck.
+        One free deck per email. Usually takes 1–3 minutes: it searches live academic sources,
+        retrieves and re-ranks the most relevant passages, then writes and builds the deck.
       </p>
 
       {job && (
