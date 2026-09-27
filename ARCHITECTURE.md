@@ -54,14 +54,22 @@ column in `db/schema.sql` without needing a schema change. Swapping to a
 different embedding provider only requires changing `lib/embeddings.ts` and
 that column dimension to match the new model's output size.
 
-## Multi-query RAG + re-ranking
+## Multi-query retrieval + cross-encoder re-ranking
 
-`lib/rag.ts` asks Claude for 3 alternate phrasings of the topic (covering
+`lib/rag.ts` asks Gemini for 3 alternate phrasings of the topic (covering
 methodology / results / applications / limitations angles), embeds and
-retrieves the top-K chunks per phrasing independently from pgvector, then
-merges the ranked lists with **Reciprocal Rank Fusion** (RRF) — chunks that
-rank well across multiple query angles float to the top, rather than
-over-indexing on whichever single query happened to match best.
+retrieves the top-K chunks per phrasing independently from pgvector — a
+cheap bi-encoder search that casts a wide net, since a single phrasing's
+embedding can miss relevant chunks that a different angle would surface.
+
+The per-phrasing result lists are deduplicated by `chunkId` into one
+candidate pool, then reranked with a real cross-encoder
+(`lib/rerank.ts`, Voyage AI's `rerank-2-lite`): each candidate is scored
+directly against the *original* topic — a real relevance judgment, not a
+heuristic inferred from where cheap vector search happened to rank it.
+This replaced an earlier Reciprocal Rank Fusion (RRF) implementation, which
+existed only as a free, model-free stand-in for a reranker; RRF is still a
+reasonable fallback if `VOYAGE_API_KEY` isn't available.
 
 ## Citation traceability
 

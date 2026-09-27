@@ -39,10 +39,13 @@ Next.js API (Vercel) and a separate long-running worker.
    ```
    Fill in `GEMINI_API_KEY` (Google Gemini — used for query expansion,
    synthesis, AND embeddings; free tier, no card required, from
-   https://aistudio.google.com/apikey). `OPENALEX_MAILTO` is optional —
-   OpenAlex needs no API key, but setting a contact email joins its "polite
-   pool" for faster, more consistent rate limits. Defaults for
-   `DATABASE_URL`/`REDIS_URL` match the Docker Compose services above.
+   https://aistudio.google.com/apikey). `VOYAGE_API_KEY` is optional —
+   used to cross-encoder rerank retrieved chunks
+   (https://dashboard.voyageai.com/); retrieval falls back to Reciprocal
+   Rank Fusion without it. `OPENALEX_MAILTO` is optional — OpenAlex needs
+   no API key, but setting a contact email joins its "polite pool" for
+   faster, more consistent rate limits. Defaults for `DATABASE_URL`/
+   `REDIS_URL` match the Docker Compose services above.
 
 5. **Run the database migration** (creates `papers`, `chunks`, `jobs`, and
    enables the `vector` extension):
@@ -108,7 +111,8 @@ plan or a card on file:
   `POST /api/generate` enqueues a job (`lib/triggerWorker.ts`), and exits
   once the queue goes idle so each run only bills Actions minutes for
   actual work. Needs repo secrets: `DATABASE_URL`, `REDIS_URL`,
-  `GEMINI_API_KEY`, `OPENALEX_MAILTO`, `BLOB_READ_WRITE_TOKEN`.
+  `GEMINI_API_KEY`, `VOYAGE_API_KEY`, `OPENALEX_MAILTO`,
+  `BLOB_READ_WRITE_TOKEN`.
 - **Vercel Blob** — generated `.pptx` files. `lib/storage.ts` uploads there
   (falling back to local disk if `BLOB_READ_WRITE_TOKEN` isn't set, e.g. in
   local dev), since the Vercel API and the GitHub Actions worker don't

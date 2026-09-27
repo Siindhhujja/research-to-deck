@@ -2,6 +2,7 @@ import { getPool } from "@/db/client";
 import { toSql } from "pgvector/pg";
 import { embedText } from "./embeddings";
 import { getGemini, GEMINI_MODEL, withGeminiRetry } from "./gemini";
+import { rerankTexts } from "./rerank";
 
 export interface RetrievedChunk {
   chunkId: number;
@@ -11,7 +12,7 @@ export interface RetrievedChunk {
   year: number | null;
   url: string | null;
   authors: string[];
-  score: number; // reciprocal-rank-fusion score after re-ranking
+  score: number; // Voyage cross-encoder relevance score after re-ranking
 }
 
 const QUERY_VARIANTS = 4;
@@ -19,7 +20,7 @@ const TOP_K_PER_QUERY = 15;
 const FINAL_TOP_N = 20;
 
 /**
- * Asks Claude for alternate phrasings of `topic` that would surface
+ * Asks Gemini for alternate phrasings of `topic` that would surface
  * different, complementary angles in a literature search (methodology,
  * results, applications, limitations, etc).
  */
@@ -79,22 +80,15 @@ async function retrieveForQuery(
   }));
 }
 
-/**
- * Multi-query RAG with Reciprocal Rank Fusion re-ranking: run several
- * query variants independently, then combine their rankings so chunks
- * that surface consistently across angles outrank one-off hits.
- */
-export async function retrieveTopChunks(topic: string): Promise<RetrievedChunk[]> {
-  const queries = await generateQueryVariants(topic);
-  // Sequential rather than Promise.all: each call embeds a query via
-  // Gemini's free tier, and a burst of concurrent calls trips its
-  // per-minute quota far more easily than the same calls spread out.
-  const rankLists: RetrievedChunk[][] = [];
-  for (const q of queries) {
-    rankLists.push(await retrieveForQuery(q, topic, TOP_K_PER_QUERY));
-  }
+const RRF_K = 60; // standard RRF smoothing constant
 
-  const RRF_K = 60; // standard RRF smoothing constant
+/**
+ * Reciprocal Rank Fusion: merges several ranked lists so chunks that rank
+ * well across multiple query angles float to the top. Used as a free,
+ * model-free fallback when no reranker API key is configured — it's a
+ * heuristic inferred from rank position, not a real relevance judgment.
+ */
+function rrfFuse(rankLists: RetrievedChunk[][]): RetrievedChunk[] {
   const fused = new Map<number, { chunk: RetrievedChunk; score: number }>();
 
   for (const list of rankLists) {
@@ -113,4 +107,46 @@ export async function retrieveTopChunks(topic: string): Promise<RetrievedChunk[]
     .sort((a, b) => b.score - a.score)
     .slice(0, FINAL_TOP_N)
     .map(({ chunk, score }) => ({ ...chunk, score }));
+}
+
+/**
+ * Multi-query RAG with cross-encoder re-ranking: run several query
+ * variants independently through cheap pgvector search to cast a wide
+ * net, then hand the deduplicated candidate pool to a Voyage cross-encoder
+ * for a real relevance judgment against the original topic — a direct
+ * (query, chunk) score, rather than inferring relevance from where cheap
+ * vector search happened to rank something. Falls back to Reciprocal Rank
+ * Fusion if VOYAGE_API_KEY isn't set, so retrieval still works without it.
+ */
+export async function retrieveTopChunks(topic: string): Promise<RetrievedChunk[]> {
+  const queries = await generateQueryVariants(topic);
+  // Sequential rather than Promise.all: each call embeds a query via
+  // Gemini's free tier, and a burst of concurrent calls trips its
+  // per-minute quota far more easily than the same calls spread out.
+  const rankLists: RetrievedChunk[][] = [];
+  for (const q of queries) {
+    rankLists.push(await retrieveForQuery(q, topic, TOP_K_PER_QUERY));
+  }
+
+  if (!process.env.VOYAGE_API_KEY) {
+    return rrfFuse(rankLists);
+  }
+
+  // The same chunk often surfaces for multiple query phrasings — dedupe
+  // by chunkId before sending to the reranker so it isn't scored twice.
+  const candidates = new Map<number, RetrievedChunk>();
+  for (const list of rankLists) {
+    for (const chunk of list) {
+      if (!candidates.has(chunk.chunkId)) candidates.set(chunk.chunkId, chunk);
+    }
+  }
+  const pool = Array.from(candidates.values());
+
+  const ranked = await rerankTexts(
+    topic,
+    pool.map((c) => c.content),
+    FINAL_TOP_N
+  );
+
+  return ranked.map(({ index, relevanceScore }) => ({ ...pool[index], score: relevanceScore }));
 }
