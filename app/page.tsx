@@ -1,6 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  MagnifyingGlass,
+  Sparkle,
+  Presentation,
+  DownloadSimple,
+  Warning,
+} from "@phosphor-icons/react";
 
 type Status = "idle" | "queued" | "running" | "done" | "failed";
 
@@ -12,13 +19,31 @@ interface JobState {
   startedAt: number;
 }
 
-const COLORS: Record<Status, string> = {
-  idle: "#9CA3AF",
-  queued: "#D97706",
-  running: "#2563EB",
-  done: "#16A34A",
-  failed: "#DC2626",
+const STATUS_COLOR: Record<Status, string> = {
+  idle: "var(--color-muted-foreground)",
+  queued: "var(--color-queued)",
+  running: "var(--color-running)",
+  done: "var(--color-accent)",
+  failed: "var(--color-destructive)",
 };
+
+const FEATURES = [
+  {
+    icon: MagnifyingGlass,
+    title: "Multi-query RAG",
+    desc: "Retrieves and re-ranks the most relevant passages from 50+ papers via reciprocal rank fusion.",
+  },
+  {
+    icon: Sparkle,
+    title: "Gemini synthesis",
+    desc: "Writes cited slide titles, bullets, and speaker notes grounded in the retrieved sources.",
+  },
+  {
+    icon: Presentation,
+    title: "Branded .pptx",
+    desc: "Assembles a ready-to-present deck with a references slide traceable to every citation.",
+  },
+];
 
 function stageLabel(job: JobState): string {
   if (job.status === "queued") return "Queued — waiting for a worker to pick this up…";
@@ -40,22 +65,6 @@ function stepIndex(job: JobState): number {
 }
 
 const STEPS = ["Queued", "Finding papers", "Writing your deck", "Ready"];
-
-function Spinner() {
-  return (
-    <span
-      style={{
-        display: "inline-block",
-        width: 14,
-        height: 14,
-        border: "2px solid rgba(37, 99, 235, 0.25)",
-        borderTopColor: "#2563EB",
-        borderRadius: "50%",
-        animation: "rtd-spin 0.7s linear infinite",
-      }}
-    />
-  );
-}
 
 function ElapsedTime({ since }: { since: number }) {
   const [now, setNow] = useState(Date.now());
@@ -120,103 +129,69 @@ export default function Home() {
   const isBusy = job?.status === "queued" || job?.status === "running";
 
   return (
-    <main style={{ maxWidth: 640, margin: "4rem auto", padding: "0 1.5rem" }}>
-      <style>{`
-        @keyframes rtd-spin { to { transform: rotate(360deg); } }
-        @keyframes rtd-indeterminate {
-          0% { transform: translateX(-40%); }
-          100% { transform: translateX(220%); }
-        }
-      `}</style>
+    <main
+      style={{
+        maxWidth: 720,
+        margin: "0 auto",
+        padding: "72px 24px 96px",
+      }}
+    >
+      <span className="kicker">
+        <span className="kicker-dot" aria-hidden="true" />
+        RAG-powered
+      </span>
 
-      <h1 style={{ fontSize: "1.75rem", marginBottom: "0.25rem" }}>Research-to-Deck Generator</h1>
-      <p style={{ color: "#6B7280", marginBottom: "2rem" }}>
-        RAG over 50+ papers, synthesized into a branded, cited PPTX deck.
+      <h1 className="hero-title">Research-to-Deck Generator</h1>
+      <p className="hero-tagline">
+        Give it a research topic. It pulls 50+ papers from OpenAlex, runs multi-query RAG over
+        them, and has Gemini assemble a cited, branded slide deck — automatically.
       </p>
 
-      <form onSubmit={submit} style={{ display: "flex", gap: "0.5rem" }}>
+      <div className="feature-grid">
+        {FEATURES.map(({ icon: Icon, title, desc }) => (
+          <div className="feature-card" key={title}>
+            <span className="feature-icon">
+              <Icon size={20} weight="regular" aria-hidden="true" />
+            </span>
+            <p className="feature-title">{title}</p>
+            <p className="feature-desc">{desc}</p>
+          </div>
+        ))}
+      </div>
+
+      <form onSubmit={submit} className="generate-form">
         <input
           value={topic}
           onChange={(e) => setTopic(e.target.value)}
           placeholder="e.g. retrieval-augmented generation evaluation"
+          aria-label="Research topic"
           required
           disabled={isBusy}
-          style={{
-            flex: 1,
-            padding: "0.6rem 0.75rem",
-            fontSize: "1rem",
-            border: "1px solid #D1D5DB",
-            borderRadius: 6,
-          }}
+          className="input"
         />
-        <button
-          type="submit"
-          disabled={isBusy}
-          style={{
-            padding: "0.6rem 1.2rem",
-            fontSize: "1rem",
-            fontWeight: 600,
-            color: "white",
-            background: isBusy ? "#93C5FD" : "#2563EB",
-            border: "none",
-            borderRadius: 6,
-            cursor: isBusy ? "default" : "pointer",
-          }}
-        >
-          Generate
+        <button type="submit" disabled={isBusy} className="btn-primary">
+          Generate deck
         </button>
       </form>
-      <p style={{ color: "#9CA3AF", fontSize: "0.85rem", marginTop: "0.5rem" }}>
+      <p className="hint-text">
         Usually takes 1–3 minutes: it searches live academic sources, retrieves and re-ranks the
         most relevant passages, then writes and builds the deck.
       </p>
 
       {job && (
-        <div
-          style={{
-            marginTop: "2rem",
-            padding: "1.25rem",
-            border: `1px solid ${COLORS[job.status]}33`,
-            background: `${COLORS[job.status]}0D`,
-            borderRadius: 10,
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "0.6rem" }}>
-            {isBusy && <Spinner />}
-            <strong style={{ color: COLORS[job.status] }}>{stageLabel(job)}</strong>
+        <div className="status-card" style={{ marginTop: 40 }} role="status" aria-live="polite">
+          <div className="status-header" style={{ color: STATUS_COLOR[job.status] }}>
+            {isBusy && <span className="spinner" aria-hidden="true" />}
+            {job.status === "failed" && <Warning size={18} weight="regular" aria-hidden="true" />}
+            <span>{stageLabel(job)}</span>
           </div>
 
           {isBusy && (
             <>
-              <div
-                style={{
-                  marginTop: "0.9rem",
-                  height: 6,
-                  borderRadius: 3,
-                  background: "#E5E7EB",
-                  overflow: "hidden",
-                }}
-              >
-                <div
-                  style={{
-                    width: "40%",
-                    height: "100%",
-                    borderRadius: 3,
-                    background: "#2563EB",
-                    animation: "rtd-indeterminate 1.4s ease-in-out infinite",
-                  }}
-                />
+              <div className="progress-track">
+                <div className="progress-bar" />
               </div>
-
-              <div
-                style={{
-                  marginTop: "0.6rem",
-                  display: "flex",
-                  justifyContent: "space-between",
-                  fontSize: "0.8rem",
-                  color: "#6B7280",
-                }}
-              >
+              <div className="step-row">
                 <span>
                   Step {stepIndex(job) + 1} of {STEPS.length}: {STEPS[stepIndex(job)]}
                 </span>
@@ -226,35 +201,17 @@ export default function Home() {
           )}
 
           {job.status === "done" && (
-            <a
-              href={`/api/download/${job.jobId}`}
-              download
-              style={{
-                display: "inline-block",
-                marginTop: "1rem",
-                padding: "0.55rem 1.1rem",
-                background: "#16A34A",
-                color: "white",
-                fontWeight: 600,
-                borderRadius: 6,
-                textDecoration: "none",
-              }}
-            >
+            <a href={`/api/download/${job.jobId}`} download className="download-btn">
+              <DownloadSimple size={18} weight="regular" aria-hidden="true" />
               Download deck (.pptx)
             </a>
           )}
 
           {job.status === "failed" && (
-            <p style={{ color: "#991B1B", marginTop: "0.75rem", fontSize: "0.9rem" }}>
-              {job.error ?? "Something went wrong."}
-            </p>
+            <p className="error-text">{job.error ?? "Something went wrong."}</p>
           )}
 
-          {job.jobId && (
-            <p style={{ marginTop: "0.75rem", fontSize: "0.75rem", color: "#9CA3AF" }}>
-              Job <code>{job.jobId}</code>
-            </p>
-          )}
+          {job.jobId && <p className="job-id">Job {job.jobId}</p>}
         </div>
       )}
     </main>
